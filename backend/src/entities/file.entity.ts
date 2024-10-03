@@ -33,6 +33,12 @@ export class File {
   fileKey: string | null
 
   @Column('varchar', {
+    name: 'signature',
+    nullable: true,
+  })
+  signature: string | null
+
+  @Column('varchar', {
     name: 'mine_type',
     nullable: true,
     length: 64,

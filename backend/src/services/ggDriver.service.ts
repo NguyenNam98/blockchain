@@ -55,18 +55,13 @@ export class GoogleDriveService {
     stream.push(null); // Signals the end of the stream
     return stream;
   }
-  async uploadFile(file: TFile, userKey: {
-    keyString: string,
-    ivString: string,
-  }): Promise<IUploadResult> {
+  async uploadFile(file: TFile): Promise<IUploadResult> {
     try {
       const fileName = this.generateFileName(file.originalName);
       const fileBuffer = await readFileAsync(file.filePath);
 
       const { encryptedFile } = this.encryptionService.encryptFileSymmetric(
-          fileBuffer,
-          userKey.keyString,
-          userKey.ivString
+          fileBuffer
       );
 
       const fileMetadata: drive_v3.Schema$File = {
@@ -96,11 +91,10 @@ export class GoogleDriveService {
     }
   }
 
-  async getFileStream(fileId: string, decryptOptions: DecryptOptions): Promise<{
-    stream: NodeJS.ReadableStream,
-    mineType: string,
-    signature: string,
-    hash: string
+  async getFileStream(fileId: string): Promise<{
+    encryptedBuffer: Buffer,
+    mimeType: string
+
   }> {
     try {
       // First, fetch the file metadata to get the mimeType
@@ -111,29 +105,26 @@ export class GoogleDriveService {
 
       const mimeType = fileMetadata.data.mimeType;
 
-      console.log("mimeType", mimeType)
-
+      // const response = await this.driveClient.files.get(
+      //     { fileId: fileId, alt: 'media' },
+      //     { responseType: 'stream' }
+      // );
       const response = await this.driveClient.files.get(
           { fileId: fileId, alt: 'media' },
-          { responseType: 'stream' }
+          { responseType: 'arraybuffer' }
       );
-      const encryptedStream = response.data;
+      // const encryptedStream = response.data;
+      const encryptedBuffer = Buffer.from(response.data as any);
 
-      // const { hash, signature } = await this.encryptionService.signFileStream(encryptedStream, decryptOptions.privateKey);
-      // Step 3: Create a decryption stream using the provided key and IV
-      const decryptionStream = this.encryptionService.decryptFileSymmetric(decryptOptions.key, decryptOptions.iv);
-
-      // Step 4: Pipe the encrypted stream through the decryption stream
-      const decryptedStream = encryptedStream.pipe(decryptionStream);
+      // const { hash, signature } = await this.encryptionService.signFileBuffer(encryptedBuffer, decryptOptions.privateKey);
       return {
-        stream: decryptedStream,  // Return the original file stream (encrypted, in your case)
-        signature: "asss",   // Signature of the file
-        hash: "asss",             // Hash of the file
-        mineType: mimeType,
-      };
+        encryptedBuffer,
+        mimeType
+      }
     } catch (error) {
       this.logger.error(`Error fetching file stream from Google Drive: ${error}`);
       throw error;
     }
   }
+
 }

@@ -1,12 +1,13 @@
 import {
   Body,
-  Controller,
-  Post,
- UsePipes, ValidationPipe,
+  Controller, Get,
+  Post, Res,
+  UsePipes, ValidationPipe,
 } from "@nestjs/common";
 import { UserService } from "./user.service";
 import {ApiTags} from "@nestjs/swagger";
-import {AuthRegisterDto} from "./user.dto";
+import {AuthLoginDto, AuthRegisterDto} from "./user.dto";
+import * as archiver from 'archiver';
 
 @ApiTags("User Authentication")
 @Controller({
@@ -17,28 +18,52 @@ export class UserController
 {
   constructor(protected userService: UserService) {}
 
+
+  @Get("gen-key")
+
+  async genKeyPair(
+      @Res() res,
+  ) {
+    const {publicKey, privateKey} = await this.userService.genKeyPair();
+    // Create a zip file
+    const archive = archiver('zip', { zlib: { level: 9 } });
+
+    // Set the response headers for downloading a zip
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', 'attachment; filename=keys.zip');
+
+    // Pipe the zip stream to the response
+    archive.pipe(res);
+
+    // Add the public and private keys to the zip
+    archive.append(publicKey, { name: 'public.pem' });
+    archive.append(privateKey, { name: 'private.pem' });
+
+    // Finalize the zip file
+    archive.finalize();
+  }
   @Post("register")
   @UsePipes(ValidationPipe)
   async register(
       @Body() authRegisterUserDto: AuthRegisterDto
   ): Promise<{}> {
-    const id = await this.userService.register(authRegisterUserDto);
+    const data = await this.userService.register(authRegisterUserDto);
     return {
-      id
+      data
     }
   }
 
   @Post("login")
   async login(
-      @Body() login: AuthRegisterDto
-  ): Promise<{
-    isLoginSuccess: boolean
+      @Body() login: AuthLoginDto,
+      @Res() res
+  ): Promise<any> {
+    const user = await this.userService.login(login);
 
-  }> {
-    const isLoginSuccess = await this.userService.login(login);
-
-    return {
-      isLoginSuccess
-    }
+    res.send({
+      isLoginSuccess: !!user,
+      userId: user?.id,
+      userName: user?.userName,
+    })
   }
 }

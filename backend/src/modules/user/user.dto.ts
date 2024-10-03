@@ -17,3 +17,15 @@ export class AuthRegisterDto {
   @IsString()
   password: string;
 }
+
+export class AuthLoginDto {
+  @IsEmail()
+  @ApiProperty()
+  @IsNotEmpty()
+  email: string;
+
+  @ApiProperty()
+  @IsNotEmpty()
+  @IsString()
+  password: string;
+}

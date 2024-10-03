@@ -35,30 +35,6 @@ export class User {
   })
   userName: string | null
 
-  @Column('varchar', {
-    name: 'private_key',
-    nullable: true,
-  })
-  privateKey: string | null
-
-  @Column('varchar', {
-    name: 'public_key',
-    nullable: true,
-  })
-
-  publicKey: string | null
-
-  @Column('varchar', {
-    name: 'symmetric_key',
-    nullable: true,
-  })
-  symmetricKey: string | null
-
-  @Column('varchar', {
-    name: 'iv_key',
-    nullable: true,
-  })
-  ivKey: string | null
 
   @CreateDateColumn({ type: "timestamp without time zone", name: "created_at" })
   createdAt!: Date;

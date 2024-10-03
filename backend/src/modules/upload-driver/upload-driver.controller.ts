@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Controller,
   Delete,
   Get,
@@ -7,15 +8,27 @@ import {
   Query,
   Req,
   Res,
-  UploadedFile,
+  UploadedFile, UploadedFiles,
 } from "@nestjs/common";
 import { Request, Response } from "express";
-import { FileUploadInterceptor } from "interceptor/fileUpload.interceptor";
+import {
+  MultiFileUploadInterceptor,
+  SingleFileUploadInterceptor
+} from "interceptor/fileUpload.interceptor";
 import { UploadDriverService } from "./upload-driver.service";
-import {ApiTags} from "@nestjs/swagger";
+import {ApiHeader, ApiTags} from "@nestjs/swagger";
 import {MetaData} from "../../decorators/metaData.decorator";
+import * as fs from "fs";
+import { createSign, createVerify } from 'crypto';
+
 
 @ApiTags("upload driver")
+@ApiHeader({
+  name: 'au-payload',
+  schema: {
+    default: '{"userId": "2139f7c0-cfaa-4610-9e54-b59f442df88e"}',
+  },
+})
 @Controller({
   path: "file",
   version: "1"
@@ -25,67 +38,125 @@ export class UploadDriverController
   constructor(protected baseUploadService: UploadDriverService) {}
 
   @Post()
-  @FileUploadInterceptor()
+  @MultiFileUploadInterceptor()
   async store(
-    @UploadedFile() file: Express.Multer.File,
-    @Req() req: Request,
+    @UploadedFiles() files: Express.Multer.File[],
     @MetaData("userId") userId: string
   ): Promise<{
     url: string;
+    signature: string;
   }> {
-    this.baseUploadService.validateFile(file);
+    console.log("userId", userId)
+    if (files.length !== 2) {
+      throw new BadRequestException('You must upload exactly two files: the file to sign and the private key.');
+    }
 
-    const fileDetail = {
-      filePath: file.path,
-      originalName: file.originalname,
-      mimeType: file.mimetype,
-    };
+    // Separate the files: one for the file to sign, the other for the private key
+    const fileToSign = files.find(file => file.originalname !== 'private.pem');
+    const privateKeyFile = files.find(file => file.originalname === 'private.pem');
+
+    if (!fileToSign || !privateKeyFile) {
+      throw new BadRequestException('Please upload a valid file and a private key file named "private.pem".');
+    }
+
+    // Read the contents of both files
+    const fileData = fs.readFileSync(fileToSign.path);
+    const privateKey = fs.readFileSync(privateKeyFile.path, 'utf8');
+
+    // Validate the private key (basic check to ensure it's in PEM format)
+    if (!privateKey.startsWith('-----BEGIN PRIVATE KEY-----')) {
+      throw new BadRequestException('Invalid private key format');
+    }
+
+    // Create a sign object for 'sha256'
+    const sign = createSign('sha256');
+    sign.update(fileData);
+    sign.end();
+    let signature = ""
+
+    try {
+      // Sign the file with the private key
+      signature = sign.sign(privateKey, 'hex');
+      // Return the signature
+    } catch (error) {
+      throw new BadRequestException('Failed to sign the file');
+    }
 
     const uploadedFileUrl = await this.baseUploadService.uploadFile(
-      fileDetail, userId
+        {
+          filePath: fileToSign.path,
+          originalName: fileToSign.originalname,
+          mimeType: fileToSign.mimetype,
+        },
+        userId,
+        signature
+
     );
     return {
         url: uploadedFileUrl,
+        signature: signature
     }
 
   }
 
-  @Get()
+  @Post("/download")
+  @SingleFileUploadInterceptor()
   async show(
-    @Query() queryData: { key: string },
+    @Query("fileId") fileId: string,
     @Res() res: Response,
+    @UploadedFile() file: Express.Multer.File,
+    @MetaData("userId") userId: string
   ): Promise<void> {
-    const { key } = queryData;
-    const {
-      stream,
-      mineType,
-      hash,
-      signature
-    } = await this.baseUploadService.getFile(key);
-    res.setHeader(
-      "Content-Disposition",
-      `inline; filename=${key.split("/").pop()}`
-    );
-    res.setHeader("Content-Type", mineType || "image/png");
-    // res.setHeader("X-File-Hash", hash);
-    // res.setHeader("X-File-Signature", signature);
+    console.log("userId", userId)
 
-    res.status(200);
-    stream.pipe(res);
+    const publicKey = fs.readFileSync(file.path, 'utf8');
+    if (!publicKey.startsWith('-----BEGIN PUBLIC KEY-----')) {
+      throw new BadRequestException('Invalid public key format');
+    }
+    const {
+      fileBuffer,
+      mimeType,
+      signature
+    } = await this.baseUploadService.getFile(fileId, userId);
+    // Create a verify object for 'sha256'
+    const verify = createVerify('sha256');
+    verify.update(fileBuffer); // Use the file from the buffer (server-side file)
+    verify.end();
+    let isValid = false;
+    try {
+      // Verify the signature using the provided public key
+      isValid = verify.verify(publicKey, signature, 'hex');
+
+      // Optionally, delete the uploaded public key file
+      fs.unlinkSync(file.path);
+
+    } catch (error) {
+      throw new BadRequestException('Failed to verify the file');
+    }
+    if (!isValid) {
+      throw new BadRequestException('Invalid signature');
+    }
+    const decryptedFile = this.baseUploadService.decryptFile(fileBuffer);
+    res.setHeader(
+        "Content-Disposition",
+        `inline; filename="${fileId}"`
+    );
+    res.setHeader("Content-Type", mimeType || "image/png");
+    res.send(decryptedFile);
   }
 
-  @Post("request-file")
+  @Get("request-file")
   async requestFile(
-    @Query() queryData: { key: string },
+    @Query("fileId") fileId: string,
     @MetaData("userId") userId: string
   ): Promise<{}> {
-    await this.baseUploadService.requestDownloadFile(queryData.key, userId);
+    await this.baseUploadService.requestDownloadFile(fileId, userId);
 
     return {
     }
   }
 
-  @Put("accept-request")
+  @Get("accept-request")
   async acceptRequest(
       @Query('requestId') requestId:  string ,
       @MetaData("userId") userId: string
@@ -94,12 +165,38 @@ export class UploadDriverController
     return {};
   }
 
-  @Put("reject-request")
+  @Get("reject-request")
   async rejectRequest(
       @Query('requestId') requestId:  string ,
       @MetaData("userId") userId: string
   ): Promise<{}> {
     await this.baseUploadService.rejectRequest(requestId, userId);
     return {};
+  }
+
+  @Get("list")
+  async getNewList(
+      @MetaData("userId") userId: string
+  ): Promise<{}> {
+    const newFiles = await this.baseUploadService.getNewListFile(userId);
+    const myFiles = await this.baseUploadService.getListMyFile(userId);
+    const requestedMyFile = await this.baseUploadService.getNewListRequestedFile(userId);
+    const acceptedMyRequest = await this.baseUploadService.getAcceptedFiles(userId);
+    return {
+      newFiles,
+      myFiles,
+      requestedMyFile,
+      acceptedMyRequest
+    };
+  }
+
+  @Get("list/requested")
+  async getNewListRequested(
+      @MetaData("userId") userId: string
+  ): Promise<{}> {
+    // const newFiles =
+    return {
+      data: []
+    };
   }
 }

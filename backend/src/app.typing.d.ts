@@ -1,7 +1,7 @@
 interface TMetaData {
   ipAddress: string
   userAgent: string
-  userId?: number
+  userId?: string
   userName?: string
   referer: string
 }

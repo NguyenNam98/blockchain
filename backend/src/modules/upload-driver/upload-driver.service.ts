@@ -5,11 +5,12 @@ import {GoogleDriveService, TFile} from "../../services/ggDriver.service";
 import {InjectDataSource} from "@nestjs/typeorm";
 import {DatabaseModule} from "../../database.module";
 import {DATABASE_NAMES} from "../../app.constant";
-import {DataSource} from "typeorm";
+import {DataSource, Equal, In, Not} from "typeorm";
 import {User} from "../../entities/user.entity";
 import {File} from "../../entities/file.entity";
 import {BusinessException} from "../../app.exception";
 import {RequestFile, RequestFileStatus} from "../../entities/requestFile.entity";
+import {EncryptionService} from "../../services/crypto.service";
 
 
 const DEFAULT_FILE_TYPE = ["image/jpeg", "image/jpg", "image/png", "application/pdf"];
@@ -24,7 +25,8 @@ export class UploadDriverService  {
   constructor(
       @InjectDataSource(DatabaseModule.getConnectionName(DATABASE_NAMES.MASTER))
       private masterConnection: DataSource,
-      private s3UploadService : GoogleDriveService
+      private s3UploadService : GoogleDriveService,
+      private encryptionService : EncryptionService
   ) {}
   get urlPrefix(): string {
     return this._uploadUrlPrefix || "/upload";
@@ -48,11 +50,13 @@ export class UploadDriverService  {
    * This method is used to upload a file to the S3 bucket.
    * @param file - The file to be uploaded.
    * @param userId
+   * @param signature
    * @returns The URL of the uploaded file.
    */
   async uploadFile(
     file: TFile,
-    userId: string
+    userId: string,
+    signature: string
   ): Promise<string> {
     // Upload the file to the S3 bucket and get the upload information.
     const userInfo = await this.masterConnection.getRepository(User).findOne({
@@ -63,50 +67,73 @@ export class UploadDriverService  {
     if (!userInfo) {
       throw new BusinessException("User not found");
     }
-    const uploadInfo = await this.s3UploadService.uploadFile(file, {
-      keyString: userInfo.symmetricKey,
-      ivString: userInfo.ivKey,
-    });
+    const uploadInfo = await this.s3UploadService.uploadFile(file);
     await this.masterConnection.getRepository(File).insert({
       userId: userId,
       fileKey: uploadInfo.key,
       mineType: file.mimeType,
-      isValid: true
+      isValid: true,
+      fileName: file.originalName,
+      signature
     });
     const { key } = uploadInfo;
     return key;
   }
 
-  async getFile(key: string): Promise<{
-    stream: NodeJS.ReadableStream,
-    mineType: string,
-    signature: string,
-    hash: string
+  async getFile(fileId: string, userId: string): Promise<{
+    fileBuffer: Buffer,
+    mimeType: string,
+    signature: string
   }> {
+    const myUser = await this.masterConnection.getRepository(User).findOne({
+      where: {
+        id: userId
+      }
+    });
+    if (!myUser) {
+      throw new BusinessException("User not found");
+    }
+    //
+    // const requestedFile = await this.masterConnection.getRepository(RequestFile).findOne({
+    //   where: {
+    //     fileId: fileId,
+    //     requesterId: userId,
+    //     isValid: true,
+    //     status: RequestFileStatus.APPROVED
+    //   }
+    // })
+    //
+    // if (!requestedFile) {
+    //   throw new BusinessException("File not found");
+    // }
+
     const fileInfor = await this.masterConnection.getRepository(File).findOne({
       where: {
-        fileKey: key
+        id: fileId
       }
     });
     if (!fileInfor) {
       throw new BusinessException("File not found");
     }
-    const userInfor = await this.masterConnection.getRepository(User).findOne({
-      where: {
-        id: fileInfor.userId
-      }
-    });
-    return this.s3UploadService.getFileStream(key, {
-      key: userInfor.symmetricKey,
-      iv: userInfor.ivKey,
-      privateKey: userInfor.privateKey
-    });
+    // const userInfor = await this.masterConnection.getRepository(User).findOne({
+    //   where: {
+    //     id: fileInfor.userId
+    //   }
+    // });
+    const data =  await this.s3UploadService.getFileStream(fileInfor.fileKey);
+    return {
+      fileBuffer: data.encryptedBuffer,
+      mimeType: data.mimeType,
+      signature: fileInfor.signature
+    }
   }
-
-  async requestDownloadFile(key: string, userId: string): Promise<any> {
+  decryptFile(fileBuffer: Buffer): Buffer {
+    return this.encryptionService.decryptFileSymmetric(fileBuffer);
+  }
+  async requestDownloadFile(fileId: string, userId: string): Promise<any> {
     const fileInfor = await this.masterConnection.getRepository(File).findOne({
       where: {
-        fileKey: key
+        id: fileId
       }
     });
     if (!fileInfor) {
@@ -185,6 +212,138 @@ export class UploadDriverService  {
       status: RequestFileStatus.REJECTED
     })
     return {}
+  }
+  async getNewListFile(userId: string): Promise<File[]> {
+
+    const userInfor = await this.masterConnection.getRepository(User).findOne({
+      where: {
+        id: userId
+      }
+    });
+    if (!userInfor) {
+      throw new BusinessException("User not found");
+    }
+    const requestedFile = await this.masterConnection.getRepository(RequestFile).find({
+      where: {
+        requesterId: userId
+      }
+    });
+    const requestFile = await this.masterConnection.getRepository(File).find({
+      where: {
+        userId: Not(Equal(userId)),
+        id: Not(In(requestedFile.map(file => file.fileId))),
+      }
+    })
+    const author = await this.masterConnection.getRepository(User).find({
+      where: {
+        id: In(requestFile.map(file => file.userId))
+      }
+    })
+    return requestFile.map(file => {
+      const authorInfor = author.find(user => user.id === file.userId);
+      return {
+        ...file,
+        userName: authorInfor?.userName
+      }
+    })
+  }
+
+  async getNewListRequestedFile(userId: string): Promise<any> {
+
+    const userInfor = await this.masterConnection.getRepository(User).findOne({
+      where: {
+        id: userId
+      }
+    });
+
+    if (!userInfor) {
+      throw new BusinessException("User not found");
+    }
+    // join table by typeorm file entity and fileRequest entity with owner file = userId
+    const requestFile = await this.masterConnection.getRepository(RequestFile).find({
+      where: {
+        ownerId: userId
+      }
+    })
+    const file = await this.masterConnection.getRepository(File).find({
+      where: {
+        id: In(requestFile.map(file => file.fileId))
+      }
+    });
+    const requester = await this.masterConnection.getRepository(User).find({
+      where: {
+        id: In(requestFile.map(file => file.requesterId))
+      }
+    })
+    return requestFile.map(request => {
+      const fileInfor = file.find(file => file.id === request.fileId);
+      return {
+        ...request,
+        fileName: fileInfor?.fileName,
+        requesterName: requester.find(user => user.id === request.requesterId)?.userName
+      }
+    })
+  }
+
+  async getAcceptedFiles(userId: string): Promise<any> {
+
+    const userInfor = await this.masterConnection.getRepository(User).findOne({
+      where: {
+        id: userId
+      }
+    });
+
+    if (!userInfor) {
+      throw new BusinessException("User not found");
+    }
+    // join table by typeorm file entity and fileRequest entity with owner file = userId
+    const requestFile = await this.masterConnection.getRepository(RequestFile).find({
+      where: {
+        requesterId: userId
+      }
+    })
+    const file = await this.masterConnection.getRepository(File).find({
+      where: {
+        id: In(requestFile.map(file => file.fileId))
+      }
+    });
+    const owner = await this.masterConnection.getRepository(User).find({
+      where: {
+        id: In(requestFile.map(file => file.ownerId))
+      }
+    })
+    return requestFile.map(request => {
+      const fileInfor = file.find(file => file.id === request.fileId);
+      return {
+        ...request,
+        fileName: fileInfor?.fileName,
+        ownerName: owner.find(user => user.id === request.ownerId)?.userName
+      }
+    })
+  }
+  async getListMyFile(userId: string): Promise<File[]> {
+
+    const userInfor = await this.masterConnection.getRepository(User).findOne({
+      where: {
+        id: userId
+      }
+    });
+    if (!userInfor) {
+      throw new BusinessException("User not found");
+    }
+
+    const data =  await this.masterConnection.getRepository(File).find({
+      where: {
+        userId: userId
+      }
+    })
+
+    return data.map(file => {
+      return {
+        ...file,
+        userName: userInfor.userName
+      }
+    });
   }
 
   validateFile(file: Express.Multer.File) {

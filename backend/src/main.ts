@@ -41,6 +41,7 @@ function getSubDirectories(srcpath, type) {
 }
 
 async function dynamicImport(type) {
+  dotenv.config();
   const PREFIX = 'modules';
   return (
     await Promise.all(
@@ -86,6 +87,7 @@ async function createNestServer(serverExpress: express.Express) {
   app.use(cookieParser());
   app.useGlobalFilters(new AllExceptionsFilter());
   app.useGlobalGuards(new AppGuard());
+  // CORS Configuration
 
   // Health check path
   app.use('/health', (req, res) => {
