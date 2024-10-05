@@ -1,4 +1,4 @@
 ## Combine 
-- truffle cpmpile
+- truffle compile
 ## Run
 - truffle migrate

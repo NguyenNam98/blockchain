@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import Web3 from 'web3';
 import { Contract } from 'web3-eth-contract';
-import {UploadDTO} from "../modules/upload/upload.dto";
+
 
 @Injectable()
 export class Web3Service {
@@ -19,9 +19,9 @@ export class Web3Service {
         "inputs": [
           {
             "indexed": true,
-            "internalType": "bytes32",
+            "internalType": "string",
             "name": "fileId",
-            "type": "bytes32"
+            "type": "string"
           },
           {
             "indexed": true,
@@ -40,6 +40,12 @@ export class Web3Service {
             "internalType": "bool",
             "name": "approved",
             "type": "bool"
+          },
+          {
+            "indexed": false,
+            "internalType": "bytes32",
+            "name": "fileHash",
+            "type": "bytes32"
           }
         ],
         "name": "AccessApproved",
@@ -50,9 +56,9 @@ export class Web3Service {
         "inputs": [
           {
             "indexed": true,
-            "internalType": "bytes32",
+            "internalType": "string",
             "name": "fileId",
-            "type": "bytes32"
+            "type": "string"
           },
           {
             "indexed": true,
@@ -75,9 +81,9 @@ export class Web3Service {
         "inputs": [
           {
             "indexed": true,
-            "internalType": "bytes32",
+            "internalType": "string",
             "name": "fileId",
-            "type": "bytes32"
+            "type": "string"
           },
           {
             "indexed": false,
@@ -104,9 +110,9 @@ export class Web3Service {
       {
         "inputs": [
           {
-            "internalType": "bytes32",
+            "internalType": "string",
             "name": "",
-            "type": "bytes32"
+            "type": "string"
           },
           {
             "internalType": "uint256",
@@ -144,9 +150,9 @@ export class Web3Service {
       {
         "inputs": [
           {
-            "internalType": "bytes32",
+            "internalType": "string",
             "name": "",
-            "type": "bytes32"
+            "type": "string"
           }
         ],
         "name": "files",
@@ -154,6 +160,11 @@ export class Web3Service {
           {
             "internalType": "string",
             "name": "fileName",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
+            "name": "userName",
             "type": "string"
           },
           {
@@ -175,27 +186,31 @@ export class Web3Service {
         "inputs": [
           {
             "internalType": "string",
+            "name": "fileId",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
             "name": "_fileName",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
+            "name": "userName",
             "type": "string"
           }
         ],
         "name": "uploadFile",
-        "outputs": [
-          {
-            "internalType": "bytes32",
-            "name": "",
-            "type": "bytes32"
-          }
-        ],
+        "outputs": [],
         "stateMutability": "nonpayable",
         "type": "function"
       },
       {
         "inputs": [
           {
-            "internalType": "bytes32",
+            "internalType": "string",
             "name": "_fileId",
-            "type": "bytes32"
+            "type": "string"
           }
         ],
         "name": "requestAccess",
@@ -206,19 +221,24 @@ export class Web3Service {
       {
         "inputs": [
           {
-            "internalType": "bytes32",
+            "internalType": "string",
             "name": "_fileId",
-            "type": "bytes32"
+            "type": "string"
           },
           {
-            "internalType": "uint256",
-            "name": "_requestIndex",
-            "type": "uint256"
+            "internalType": "address",
+            "name": "_requester",
+            "type": "address"
           },
           {
             "internalType": "bool",
             "name": "_approved",
             "type": "bool"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "_hash",
+            "type": "bytes32"
           }
         ],
         "name": "approveAccess",
@@ -229,9 +249,9 @@ export class Web3Service {
       {
         "inputs": [
           {
-            "internalType": "bytes32",
+            "internalType": "string",
             "name": "_fileId",
-            "type": "bytes32"
+            "type": "string"
           }
         ],
         "name": "getAccessRequestsCount",
@@ -249,9 +269,9 @@ export class Web3Service {
       {
         "inputs": [
           {
-            "internalType": "bytes32",
+            "internalType": "string",
             "name": "_fileId",
-            "type": "bytes32"
+            "type": "string"
           },
           {
             "internalType": "uint256",
@@ -286,16 +306,24 @@ export class Web3Service {
         "type": "function",
         "constant": true
       }
-    ]; // Replace with your contract ABI
-    const contractAddress: string = "0xfD098DEb3805A7B0C776bC16cc2b63872898bc65"; // Replace with your contract address
+    ]
+    const contractAddress: string = process.env.CONTRACT_ADDRESS; // Replace with your contract address
 
     // Initialize the contract instance
     this.fileRecord = new this.web3.eth.Contract(contractABI, contractAddress);
   }
 
   // Function to upload a file
-  async uploadFile(data: UploadDTO, userName: string): Promise<any> {
-    return this.fileRecord.methods.uploadFile(data.fileName, userName).send({
+  async uploadFile(data: {
+    fileId: string,
+    uploaderAddress: string,
+    fileName: string
+  }, userName: string): Promise<any> {
+    return this.fileRecord.methods.uploadFile(
+        data.fileId,
+        data.fileName,
+        userName
+    ).send({
       from: data.uploaderAddress,
       gas: "3000000",
     });

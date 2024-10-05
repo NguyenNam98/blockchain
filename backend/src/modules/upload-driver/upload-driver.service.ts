@@ -11,6 +11,7 @@ import {File} from "../../entities/file.entity";
 import {BusinessException} from "../../app.exception";
 import {RequestFile, RequestFileStatus} from "../../entities/requestFile.entity";
 import {EncryptionService} from "../../services/crypto.service";
+import {Web3Service} from "../../services/web3.service";
 
 
 const DEFAULT_FILE_TYPE = ["image/jpeg", "image/jpg", "image/png", "application/pdf"];
@@ -26,7 +27,8 @@ export class UploadDriverService  {
       @InjectDataSource(DatabaseModule.getConnectionName(DATABASE_NAMES.MASTER))
       private masterConnection: DataSource,
       private s3UploadService : GoogleDriveService,
-      private encryptionService : EncryptionService
+      private encryptionService : EncryptionService,
+      private web3Service: Web3Service
   ) {}
   get urlPrefix(): string {
     return this._uploadUrlPrefix || "/upload";
@@ -39,12 +41,6 @@ export class UploadDriverService  {
   get maxFileSize(): number {
     return this._maxFileSize || 5;
   }
-  private generateUploadFileUrl = (key: string, route: string): string => {
-    const queryString = qs.stringify({
-      key,
-    });
-    return `${this.urlPrefix}/${route}?${queryString}`;
-  };
 
   /**
    * This method is used to upload a file to the S3 bucket.
@@ -67,8 +63,10 @@ export class UploadDriverService  {
     if (!userInfo) {
       throw new BusinessException("User not found");
     }
+    // upload to driver
     const uploadInfo = await this.s3UploadService.uploadFile(file);
-    await this.masterConnection.getRepository(File).insert({
+    // save to db
+    const newFile = await this.masterConnection.getRepository(File).insert({
       userId: userId,
       fileKey: uploadInfo.key,
       mineType: file.mimeType,
@@ -76,8 +74,14 @@ export class UploadDriverService  {
       fileName: file.originalName,
       signature
     });
-    const { key } = uploadInfo;
-    return key;
+    // public to block chain
+    await this.web3Service.uploadFile({
+      fileId: newFile.identifiers[0].id,
+      uploaderAddress: userInfo.blockChainAddress,
+      fileName: file.originalName,
+    }, userInfo.userName);
+
+    return uploadInfo.key;
   }
 
   async getFile(fileId: string, userId: string, requesterPrivateKey: string): Promise<{
@@ -148,7 +152,11 @@ export class UploadDriverService  {
     if (!userInfor) {
       throw new BusinessException("User not found");
     }
+
     const encryptedKey =  this.encryptionService.encryptWithPublicKey(requesterPublicKey, process.env.SYMMETRIC_KEY);
+    // send request to block chain
+    await this.web3Service.requestAccess(fileId, userInfor.blockChainAddress);
+
     await this.masterConnection.getRepository(RequestFile).insert({
       ownerId: fileInfor.userId,
       requesterId: userId,
@@ -182,12 +190,30 @@ export class UploadDriverService  {
       throw new BusinessException("Request not found");
     }
 
+    const requester = await this.masterConnection.getRepository(User).findOne({
+      where: {
+        id: requestFile.requesterId
+      }
+    })
+
+    if (!requester) {
+      throw new BusinessException("Requester not found");
+    }
     await this.masterConnection.getRepository(RequestFile).update({
       id: requestFileId
     }, {
       status: RequestFileStatus.APPROVED,
       ownerPublicKey
     })
+    // public to block chain
+    await this.web3Service.approveOrRejectAccess(
+        requestFile.fileId,
+        requester.blockChainAddress,
+        true,
+        userInfor.blockChainAddress,
+        requestFile.encryptedKey
+    );
+
     return {}
   }
   async rejectRequest(requestFileId: string, userId: string): Promise<any> {
@@ -211,11 +237,30 @@ export class UploadDriverService  {
     if (!requestFile) {
       throw new BusinessException("Request not found");
     }
+
+    const requester = await this.masterConnection.getRepository(User).findOne({
+      where: {
+        id: requestFile.requesterId
+      }
+    })
+
+    if (!requester) {
+      throw new BusinessException("Requester not found");
+    }
     await this.masterConnection.getRepository(RequestFile).update({
       id: requestFileId
     }, {
       status: RequestFileStatus.REJECTED
     })
+
+    await this.web3Service.approveOrRejectAccess(
+        requestFile.fileId,
+        requester.blockChainAddress,
+        false,
+        userInfor.blockChainAddress,
+        ""
+    );
+
     return {}
   }
   async getNewListFile(userId: string): Promise<File[]> {

@@ -17,23 +17,23 @@ contract StoreFile {
         uint256 approvalTimestamp;
     }
 
-    // Mapping from file ID to File struct
-    mapping(bytes32 => File) public files;
+    // Mapping from file ID (string) to File struct
+    mapping(string => File) public files;
 
-    // Mapping from file ID to array of access requests
-    mapping(bytes32 => AccessRequest[]) public accessRequests;
+    // Mapping from file ID (string) to array of access requests
+    mapping(string => AccessRequest[]) public accessRequests;
 
     // Event emitted when a new file is uploaded
-    event FileUploaded(bytes32 indexed fileId, string fileName, address indexed uploader, uint256 timestamp);
+    event FileUploaded(string indexed fileId, string fileName, address indexed uploader, uint256 timestamp);
 
     // Event emitted when an access request is made
-    event AccessRequested(bytes32 indexed fileId, address indexed requester, uint256 timestamp);
+    event AccessRequested(string indexed fileId, address indexed requester, uint256 timestamp);
 
     // Event emitted when an access request is approved or denied, including the hash
-    event AccessApproved(bytes32 indexed fileId, address indexed requester, uint256 approvalTimestamp, bool approved, bytes32 fileHash);
+    event AccessApproved(string indexed fileId, address indexed requester, uint256 approvalTimestamp, bool approved, bytes32 fileHash);
 
     // Function to upload a new file record with a provided fileId
-    function uploadFile(bytes32 fileId, string memory _fileName, string memory userName) public {
+    function uploadFile(string memory fileId, string memory _fileName, string memory userName) public {
         require(bytes(_fileName).length > 0, "File name cannot be empty");
         require(files[fileId].uploader == address(0), "File ID already exists"); // Ensure file ID is unique
 
@@ -48,7 +48,7 @@ contract StoreFile {
     }
 
     // Function to request access to a file
-    function requestAccess(bytes32 _fileId) public {
+    function requestAccess(string memory _fileId) public {
         require(files[_fileId].uploader != address(0), "File does not exist");
 
         // Check if the user has already requested access
@@ -75,7 +75,7 @@ contract StoreFile {
     }
 
     // Function for the owner to approve or deny access and log a hash
-    function approveAccess(bytes32 _fileId, address _requester, bool _approved, bytes32 _hash) public {
+    function approveAccess(string memory _fileId, address _requester, bool _approved, bytes32 _hash) public {
         require(files[_fileId].uploader == msg.sender, "Only uploader can approve access");
 
         AccessRequest[] storage requests = accessRequests[_fileId];
@@ -98,12 +98,12 @@ contract StoreFile {
     }
 
     // Function to get the number of access requests for a file
-    function getAccessRequestsCount(bytes32 _fileId) public view returns (uint256) {
+    function getAccessRequestsCount(string memory _fileId) public view returns (uint256) {
         return accessRequests[_fileId].length;
     }
 
     // Function to get details of a specific access request
-    function getAccessRequest(bytes32 _fileId, uint256 _index) public view returns (address, uint256, bool, uint256) {
+    function getAccessRequest(string memory _fileId, uint256 _index) public view returns (address, uint256, bool, uint256) {
         require(_index < accessRequests[_fileId].length, "Invalid access request index");
 
         AccessRequest memory request = accessRequests[_fileId][_index];
