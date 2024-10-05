@@ -43,9 +43,9 @@ export class Web3Service {
           },
           {
             "indexed": false,
-            "internalType": "bytes32",
+            "internalType": "string",
             "name": "fileHash",
-            "type": "bytes32"
+            "type": "string"
           }
         ],
         "name": "AccessApproved",
@@ -89,6 +89,12 @@ export class Web3Service {
             "indexed": false,
             "internalType": "string",
             "name": "fileName",
+            "type": "string"
+          },
+          {
+            "indexed": false,
+            "internalType": "string",
+            "name": "userName",
             "type": "string"
           },
           {
@@ -236,9 +242,9 @@ export class Web3Service {
             "type": "bool"
           },
           {
-            "internalType": "bytes32",
+            "internalType": "string",
             "name": "_hash",
-            "type": "bytes32"
+            "type": "string"
           }
         ],
         "name": "approveAccess",
@@ -331,7 +337,7 @@ export class Web3Service {
 
   // Function to request access to a file
   async requestAccess(fileId: string, requesterAddress: string): Promise<void> {
-    await this.fileRecord.methods.requestAccess(fileId).send({ from: requesterAddress });
+    await this.fileRecord.methods.requestAccess(fileId).send({ from: requesterAddress, gas: "3000000", });
   }
 
   // Function to approve access to a file
@@ -347,7 +353,7 @@ export class Web3Service {
         requesterAddress,
         isAccept,
         encryptedKey
-    ).send({ from: approveAddress });
+    ).send({ from: approveAddress, gas: "3000000", });
   }
   async getAccountByIndex(index: number): Promise<string> {
     return this.web3.eth.getAccounts().then(accounts => accounts[index]);
