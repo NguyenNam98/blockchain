@@ -35,6 +35,18 @@ export class User {
   })
   userName: string | null
 
+  @Column('text', {
+    name: 'block_chain_address',
+    nullable: true,
+  })
+  blockChainAddress: string | null
+
+  @Column('int', {
+    name: 'block_chain_account_index',
+    nullable: true,
+  })
+  blockChainAccountIndex: number | null
+
 
   @CreateDateColumn({ type: "timestamp without time zone", name: "created_at" })
   createdAt!: Date;

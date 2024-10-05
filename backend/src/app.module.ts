@@ -13,6 +13,7 @@ import {GoogleDriveService} from "./services/ggDriver.service";
 import {DatabaseModule} from "./database.module";
 import {ProfileKeyService} from "./services/profileKey.service";
 import {EncryptionService} from "./services/crypto.service";
+import {Web3Service} from "./services/web3.service";
 @Global()
 @Module({})
 export class AppModule {
@@ -36,12 +37,14 @@ export class AppModule {
         },
         GoogleDriveService,
         ProfileKeyService,
-        EncryptionService
+        EncryptionService,
+        Web3Service
       ],
       exports: [
         GoogleDriveService,
         ProfileKeyService,
-        EncryptionService
+        EncryptionService,
+        Web3Service
       ],
     }
   }

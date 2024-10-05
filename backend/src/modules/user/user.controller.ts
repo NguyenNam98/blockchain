@@ -8,6 +8,7 @@ import { UserService } from "./user.service";
 import {ApiTags} from "@nestjs/swagger";
 import {AuthLoginDto, AuthRegisterDto} from "./user.dto";
 import * as archiver from 'archiver';
+import { BusinessException } from "app.exception";
 
 @ApiTags("User Authentication")
 @Controller({
@@ -59,7 +60,9 @@ export class UserController
       @Res() res
   ): Promise<any> {
     const user = await this.userService.login(login);
-
+    if (!user) {
+      throw new BusinessException('Invalid username or password')
+    }
     res.send({
       isLoginSuccess: !!user,
       userId: user?.id,

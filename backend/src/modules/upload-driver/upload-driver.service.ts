@@ -80,32 +80,35 @@ export class UploadDriverService  {
     return key;
   }
 
-  async getFile(fileId: string, userId: string): Promise<{
+  async getFile(fileId: string, userId: string, requesterPrivateKey: string): Promise<{
     fileBuffer: Buffer,
     mimeType: string,
-    signature: string
+    signature: string,
+    ownerPublicKey: string,
+    encryptedKey: string
   }> {
     const myUser = await this.masterConnection.getRepository(User).findOne({
       where: {
         id: userId
       }
     });
+
     if (!myUser) {
       throw new BusinessException("User not found");
     }
-    //
-    // const requestedFile = await this.masterConnection.getRepository(RequestFile).findOne({
-    //   where: {
-    //     fileId: fileId,
-    //     requesterId: userId,
-    //     isValid: true,
-    //     status: RequestFileStatus.APPROVED
-    //   }
-    // })
-    //
-    // if (!requestedFile) {
-    //   throw new BusinessException("File not found");
-    // }
+
+    const requestedFile = await this.masterConnection.getRepository(RequestFile).findOne({
+      where: {
+        fileId: fileId,
+        requesterId: userId,
+        isValid: true,
+        status: RequestFileStatus.APPROVED
+      }
+    })
+
+    if (!requestedFile) {
+      throw new BusinessException("File not found");
+    }
 
     const fileInfor = await this.masterConnection.getRepository(File).findOne({
       where: {
@@ -115,22 +118,20 @@ export class UploadDriverService  {
     if (!fileInfor) {
       throw new BusinessException("File not found");
     }
-    // const userInfor = await this.masterConnection.getRepository(User).findOne({
-    //   where: {
-    //     id: fileInfor.userId
-    //   }
-    // });
+
     const data =  await this.s3UploadService.getFileStream(fileInfor.fileKey);
     return {
       fileBuffer: data.encryptedBuffer,
       mimeType: data.mimeType,
-      signature: fileInfor.signature
+      signature: fileInfor.signature,
+      ownerPublicKey: requestedFile.ownerPublicKey,
+      encryptedKey: this.encryptionService.decryptWithPrivateKey(requesterPrivateKey, requestedFile.encryptedKey)
     }
   }
-  decryptFile(fileBuffer: Buffer): Buffer {
-    return this.encryptionService.decryptFileSymmetric(fileBuffer);
+  decryptFile(fileBuffer: Buffer, key: string): Buffer {
+    return this.encryptionService.decryptFileSymmetric(fileBuffer, key);
   }
-  async requestDownloadFile(fileId: string, userId: string): Promise<any> {
+  async requestDownloadFile(fileId: string, userId: string, requesterPublicKey: string): Promise<any> {
     const fileInfor = await this.masterConnection.getRepository(File).findOne({
       where: {
         id: fileId
@@ -147,17 +148,18 @@ export class UploadDriverService  {
     if (!userInfor) {
       throw new BusinessException("User not found");
     }
-
+    const encryptedKey =  this.encryptionService.encryptWithPublicKey(requesterPublicKey, process.env.SYMMETRIC_KEY);
     await this.masterConnection.getRepository(RequestFile).insert({
       ownerId: fileInfor.userId,
       requesterId: userId,
       fileId: fileInfor.id,
-      isValid: true
+      isValid: true,
+      encryptedKey
     })
     return {}
   }
 
-  async acceptRequest(requestFileId: string, userId: string): Promise<any> {
+  async acceptRequest(requestFileId: string, userId: string, ownerPublicKey: string): Promise<any> {
 
     const userInfor = await this.masterConnection.getRepository(User).findOne({
       where: {
@@ -175,13 +177,16 @@ export class UploadDriverService  {
         status: RequestFileStatus.PENDING
       }
     })
+
     if (!requestFile) {
       throw new BusinessException("Request not found");
     }
+
     await this.masterConnection.getRepository(RequestFile).update({
       id: requestFileId
     }, {
-      status: RequestFileStatus.APPROVED
+      status: RequestFileStatus.APPROVED,
+      ownerPublicKey
     })
     return {}
   }

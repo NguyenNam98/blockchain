@@ -2,18 +2,9 @@
 pragma solidity ^0.8.12;
 
 contract StoreFile {
-//    uint value;
-//
-//    function set(uint v) public{
-//        value = v;
-//    }
-//
-//    function get() public view returns(uint){
-//        return value;
-//    }
-    // Struct to represent a file upload
     struct File {
         string fileName;
+        string userName;
         address uploader;
         uint256 timestamp;
     }
@@ -38,27 +29,40 @@ contract StoreFile {
     // Event emitted when an access request is made
     event AccessRequested(bytes32 indexed fileId, address indexed requester, uint256 timestamp);
 
-    // Event emitted when an access request is approved or denied
-    event AccessApproved(bytes32 indexed fileId, address indexed requester, uint256 approvalTimestamp, bool approved);
+    // Event emitted when an access request is approved or denied, including the hash
+    event AccessApproved(bytes32 indexed fileId, address indexed requester, uint256 approvalTimestamp, bool approved, bytes32 fileHash);
 
-    // Function to upload a new file record
-    function uploadFile(string memory _fileName) public returns (bytes32) {
+    // Function to upload a new file record with a provided fileId
+    function uploadFile(bytes32 fileId, string memory _fileName, string memory userName) public {
         require(bytes(_fileName).length > 0, "File name cannot be empty");
+        require(files[fileId].uploader == address(0), "File ID already exists"); // Ensure file ID is unique
 
-        bytes32 fileId = keccak256(abi.encodePacked(_fileName, msg.sender, block.timestamp));
         files[fileId] = File({
             fileName: _fileName,
             uploader: msg.sender,
-            timestamp: block.timestamp
+            timestamp: block.timestamp,
+            userName: userName
         });
 
         emit FileUploaded(fileId, _fileName, msg.sender, block.timestamp);
-        return fileId;
     }
 
     // Function to request access to a file
     function requestAccess(bytes32 _fileId) public {
         require(files[_fileId].uploader != address(0), "File does not exist");
+
+        // Check if the user has already requested access
+        AccessRequest[] storage requests = accessRequests[_fileId];
+        for (uint256 i = 0; i < requests.length; i++) {
+            AccessRequest storage existingRequest = requests[i];
+
+            // If the requester already exists, check the status of their request
+            if (existingRequest.requester == msg.sender) {
+                require(!existingRequest.approved, "Access already granted");
+                require(existingRequest.approvalTimestamp == 0, "Access already rejected");
+                revert("Access request already made, pending approval or rejection");
+            }
+        }
 
         accessRequests[_fileId].push(AccessRequest({
             requester: msg.sender,
@@ -70,18 +74,27 @@ contract StoreFile {
         emit AccessRequested(_fileId, msg.sender, block.timestamp);
     }
 
-    // Function for the file owner to approve or deny an access request
-    function approveAccess(bytes32 _fileId, uint256 _requestIndex, bool _approved) public {
+    // Function for the owner to approve or deny access and log a hash
+    function approveAccess(bytes32 _fileId, address _requester, bool _approved, bytes32 _hash) public {
         require(files[_fileId].uploader == msg.sender, "Only uploader can approve access");
-        require(_requestIndex < accessRequests[_fileId].length, "Invalid access request index");
 
-        AccessRequest storage request = accessRequests[_fileId][_requestIndex];
-        require(!request.approved, "Request already processed");
+        AccessRequest[] storage requests = accessRequests[_fileId];
 
-        request.approved = _approved;
-        request.approvalTimestamp = block.timestamp;
+        // Find the request made by the requester
+        for (uint256 i = 0; i < requests.length; i++) {
+            if (requests[i].requester == _requester) {
+                require(!requests[i].approved, "Request already processed");
 
-        emit AccessApproved(_fileId, request.requester, block.timestamp, _approved);
+                requests[i].approved = _approved;
+                requests[i].approvalTimestamp = block.timestamp;
+
+                // Emit event with the file hash and approval details
+                emit AccessApproved(_fileId, _requester, block.timestamp, _approved, _hash);
+                return; // Exit the function after finding and processing the request
+            }
+        }
+
+        revert("Access request not found");
     }
 
     // Function to get the number of access requests for a file

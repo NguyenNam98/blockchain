@@ -7,6 +7,7 @@ import {DataSource} from "typeorm";
 import {AuthLoginDto, AuthRegisterDto} from "./user.dto";
 import {User} from "../../entities/user.entity";
 import {BusinessException} from "../../app.exception";
+import {Web3Service} from "../../services/web3.service";
 
 @Injectable()
 export class UserService {
@@ -14,10 +15,12 @@ export class UserService {
   constructor(
       private profileKey : ProfileKeyService,
       @InjectDataSource(DatabaseModule.getConnectionName(DATABASE_NAMES.MASTER))
-      private masterConnection: DataSource
+      private masterConnection: DataSource,
+      private web3Service: Web3Service
   ) {}
   async register(data: AuthRegisterDto): Promise<{
     id: string;
+    web3Account: string;
   }> {
     const userByEmail = await this.masterConnection.getRepository(User).findOne({
       where: {
@@ -27,13 +30,18 @@ export class UserService {
     if (userByEmail) {
       throw new BusinessException("Email already exists");
     }
+    const currentAccount = await this.masterConnection.getRepository(User).count();
+    const web3Account = await this.web3Service.getAccountByIndex(currentAccount - 1);
     const id =  await this.masterConnection.getRepository(User).insert({
       email: data.email,
       password: data.password,
       userName: data.userName,
+      blockChainAddress: web3Account,
+      blockChainAccountIndex: currentAccount - 1
     });
     return {
       id: id.identifiers[0].id,
+      web3Account
     }
   }
 

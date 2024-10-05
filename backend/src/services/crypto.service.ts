@@ -1,6 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import {BadRequestException, Injectable} from '@nestjs/common';
 import * as crypto from 'crypto';
 import {  Transform } from 'stream';
+import {createSign, createVerify} from "crypto";
+import fs from "fs";
 
 
 
@@ -27,8 +29,7 @@ export class EncryptionService {
       encryptedFile,       // Return encrypted file as Buffer
     };
   }
-  decryptFileSymmetric(encryptedBuffer: Buffer) {
-    const keyString = process.env.SYMMETRIC_KEY;
+  decryptFileSymmetric(encryptedBuffer: Buffer, keyString: string) {
     const ivString = process.env.IV_KEY;
     const key = Buffer.from(keyString, 'hex');
     const iv = Buffer.from(ivString, 'hex');
@@ -41,76 +42,58 @@ export class EncryptionService {
 
     return decryptedFile; // Return the decrypted file as Buffer
   }
-  // Encrypt the symmetric key asymmetrically using RSA
-  // encryptSymmetricKeyAsymmetric(publicKey: string, symmetricKeyHex: string) {
-  //   console.log("publicKey", publicKey)
-  //   const encryptedKey = crypto.publicEncrypt(publicKey, Buffer.from(symmetricKeyHex, 'hex')); // Encrypt symmetric key
-  //   return encryptedKey.toString('base64'); // Return encrypted key in base64 format
-  // }
-  //
-  // // Decrypt the symmetric key using RSA private key
-  // decryptSymmetricKeyAsymmetric(privateKey: string, encryptedKeyBase64: string) {
-  //   const decryptedKey = crypto.privateDecrypt(privateKey, Buffer.from(encryptedKeyBase64, 'base64'));
-  //   return decryptedKey.toString('hex'); // Return symmetric key in hex format
-  // }
-  // encryptSymmetricKeyAsymmetric(publicKeyBase64: string, symmetricKeyHex: string): string {
-  //   // Convert the Base64-encoded public key back to a Buffer (DER format)
-  //   const publicKey = Buffer.from(publicKeyBase64, 'base64');
-  //
-  //   // Encrypt the symmetric key using the public key
-  //   const encryptedKey = crypto.publicEncrypt(
-  //       publicKey, // Public key in Buffer form (DER format)
-  //       Buffer.from(symmetricKeyHex, 'hex') // Symmetric key in hex format converted to Buffer
-  //   );
-  //
-  //   // Return the encrypted key as a Base64-encoded string
-  //   return encryptedKey.toString('base64');
-  // }
-  // encryptSymmetricKeyAsymmetric(publicKeyPem: string, symmetricKeyHex: string): string {
-  //   const encryptedKey = crypto.publicEncrypt(
-  //       publicKeyPem, // Public key in PEM format
-  //       Buffer.from(symmetricKeyHex, 'hex') // Symmetric key in hex format converted to Buffer
-  //   );
-  //
-  //   return encryptedKey.toString('base64'); // Return encrypted key in Base64 format
-  // }
-
-  // Decrypt the symmetric key using the private key (in PEM format)
-  // decryptSymmetricKeyAsymmetric(privateKeyPem: string, encryptedKeyBase64: string): string {
-  //   const decryptedKey = crypto.privateDecrypt(
-  //       privateKeyPem, // Private key in PEM format
-  //       Buffer.from(encryptedKeyBase64, 'base64') // Encrypted key in Base64 format converted to Buffer
-  //   );
-  //
-  //   return decryptedKey.toString('hex'); // Return decrypted symmetric key in hex format
-  // }
 
 
-  async signFileBuffer(fileBuffer: Buffer, privateKey: string): Promise<SignatureResult> {
-    return new Promise((resolve, reject) => {
-      try {
-        const hash = crypto.createHash('sha256');  // Hashing algorithm (SHA-256)
-        const sign = crypto.createSign('sha256');  // Signature algorithm (using SHA-256)
+  async signFileBuffer(fileBuffer: Buffer, privateKey: string): Promise<string> {
+    const sign = createSign('sha256');
+    sign.update(fileBuffer);
+    sign.end();
+    let signature = ""
 
-        // Update both hash and signature with the file buffer
-        hash.update(fileBuffer);
-        sign.update(fileBuffer);
+    try {
+      // Sign the file with the private key
+      signature = sign.sign(privateKey, 'hex');
+    } catch (error) {
+      throw new BadRequestException('Failed to sign the file');
+    }
+    return signature
+  }
+  async verifyFileBuffer(
+      fileBuffer: Buffer,
+      publicKey: string,
+      signature: string
+  ): Promise<boolean> {
+    const verify = createVerify('sha256');
+    verify.update(fileBuffer); // Use the file from the buffer (server-side file)
+    verify.end();
 
-        // Convert private key from Base64 to Buffer
-        const privateKeyBuffer = Buffer.from(privateKey, 'base64');
+    let isValid = false;
 
-        // Generate the final hash and signature
-        const finalHash = hash.digest('hex');  // Finalize the hash
-        const finalSignature = sign.sign({ key: privateKeyBuffer, format: 'der', type: 'pkcs8' }, 'base64');  // Sign the hash with the private key
+    try {
+      // Verify the signature using the provided public key
+      isValid = verify.verify(publicKey, signature, 'hex');
 
-        resolve({
-          hash: finalHash,          // Return the final hash
-          signature: finalSignature // Return the base64-encoded signature
-        });
-      } catch (err) {
-        reject(err);
-      }
-    });
+    } catch (error) {
+      throw new BadRequestException('Failed to verify the file');
+    }
+    return isValid;
+  }
+  encryptWithPublicKey(publicKeyPem: string, symmetricKey: string): string {
+    const encryptedSymmetricKey = crypto.publicEncrypt(
+        publicKeyPem, // Public key in PEM format
+        Buffer.from(symmetricKey, 'utf8')
+    );
+
+    return encryptedSymmetricKey.toString('base64');
+  }
+
+  // Decrypt the encrypted symmetric key using the private key (PEM format)
+  decryptWithPrivateKey(privateKeyPem: string, encryptedSymmetricKeyBase64: string): string {
+    const decryptedSymmetricKey = crypto.privateDecrypt(
+        privateKeyPem,
+        Buffer.from(encryptedSymmetricKeyBase64, 'base64') // Convert Base64-encoded encrypted key to Buffer
+    );
+    return decryptedSymmetricKey.toString('utf8');
   }
 }
 

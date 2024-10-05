@@ -36,6 +36,20 @@ export class RequestFile {
   })
   status: number
 
+  @Column( {
+    type: 'text',
+    name: 'encrypted_key',
+    nullable: true
+  })
+  encryptedKey: string
+
+  @Column( {
+    type: 'text',
+    name: 'owner_public_key',
+    nullable: true
+  })
+  ownerPublicKey: string
+
   @Column('uuid', {
     name: 'file_id',
   })

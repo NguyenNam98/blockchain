@@ -1,16 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import Web3 from 'web3';
 import { Contract } from 'web3-eth-contract';
-import {UploadDTO} from "./upload.dto";
+import {UploadDTO} from "../modules/upload/upload.dto";
 
 @Injectable()
-export class UploadService {
+export class Web3Service {
   private web3: Web3;
   private fileRecord: Contract<any>;
 
   constructor() {
     // Initialize Web3 with the local or remote provider (Ganache or Infura)
-    //this.web3 = new Web3('http://127.0.0.1:7545'); // Replace with your provider
+    this.web3 = new Web3('http://127.0.0.1:7545'); // Replace with your provider
 
     // ABI and contract address for the deployed contract
     const contractABI: any[] = [
@@ -294,21 +294,34 @@ export class UploadService {
   }
 
   // Function to upload a file
-  async uploadFile(data: UploadDTO): Promise<any> {
-    const accounts = await this.web3.eth.getAccounts();
-    return await this.fileRecord.methods.uploadFile(data.fileName,).send({
-      from: accounts[0],
+  async uploadFile(data: UploadDTO, userName: string): Promise<any> {
+    return this.fileRecord.methods.uploadFile(data.fileName, userName).send({
+      from: data.uploaderAddress,
       gas: "3000000",
     });
   }
 
   // Function to request access to a file
   async requestAccess(fileId: string, requesterAddress: string): Promise<void> {
-    // await this.fileRecord.methods.requestAccess(fileId).send({ from: requesterAddress });
+    await this.fileRecord.methods.requestAccess(fileId).send({ from: requesterAddress });
   }
 
   // Function to approve access to a file
-  async approveAccess(fileId: string, requestIndex: number, approverAddress: string): Promise<void> {
-    // await this.fileRecord.methods.approveAccess(fileId, requestIndex).send({ from: approverAddress });
+  async approveOrRejectAccess(
+      fileId: string,
+      requesterAddress: string,
+      isAccept: boolean,
+      approveAddress: string,
+      encryptedKey: string,
+  ): Promise<void> {
+    await this.fileRecord.methods.approveAccess(
+        fileId,
+        requesterAddress,
+        isAccept,
+        encryptedKey
+    ).send({ from: approveAddress });
+  }
+  async getAccountByIndex(index: number): Promise<string> {
+    return this.web3.eth.getAccounts().then(accounts => accounts[index]);
   }
 }

@@ -1,16 +1,13 @@
 import {
   BadRequestException,
   Controller,
-  Delete,
   Get,
   Post,
-  Put,
   Query,
-  Req,
   Res,
   UploadedFile, UploadedFiles,
 } from "@nestjs/common";
-import { Request, Response } from "express";
+import { Response } from "express";
 import {
   MultiFileUploadInterceptor,
   SingleFileUploadInterceptor
@@ -46,7 +43,6 @@ export class UploadDriverController
     url: string;
     signature: string;
   }> {
-    console.log("userId", userId)
     if (files.length !== 2) {
       throw new BadRequestException('You must upload exactly two files: the file to sign and the private key.');
     }
@@ -77,7 +73,6 @@ export class UploadDriverController
     try {
       // Sign the file with the private key
       signature = sign.sign(privateKey, 'hex');
-      // Return the signature
     } catch (error) {
       throw new BadRequestException('Failed to sign the file');
     }
@@ -107,36 +102,40 @@ export class UploadDriverController
     @UploadedFile() file: Express.Multer.File,
     @MetaData("userId") userId: string
   ): Promise<void> {
-    console.log("userId", userId)
+    const requesterPrivateKey = fs.readFileSync(file.path, 'utf8');
 
-    const publicKey = fs.readFileSync(file.path, 'utf8');
-    if (!publicKey.startsWith('-----BEGIN PUBLIC KEY-----')) {
-      throw new BadRequestException('Invalid public key format');
+    // Validate the private key (basic check to ensure it's in PEM format)
+    if (!requesterPrivateKey.startsWith('-----BEGIN PRIVATE KEY-----')) {
+      throw new BadRequestException('Invalid private key format');
     }
     const {
       fileBuffer,
       mimeType,
-      signature
-    } = await this.baseUploadService.getFile(fileId, userId);
-    // Create a verify object for 'sha256'
+      signature,
+      encryptedKey,
+      ownerPublicKey
+    } = await this.baseUploadService.getFile(fileId, userId, requesterPrivateKey);
+
+    const decryptedFile = this.baseUploadService.decryptFile(fileBuffer, encryptedKey);
+
     const verify = createVerify('sha256');
-    verify.update(fileBuffer); // Use the file from the buffer (server-side file)
+    verify.update(decryptedFile); // Use the file from the buffer (server-side file)
     verify.end();
     let isValid = false;
     try {
       // Verify the signature using the provided public key
-      isValid = verify.verify(publicKey, signature, 'hex');
-
-      // Optionally, delete the uploaded public key file
-      fs.unlinkSync(file.path);
+      isValid = verify.verify(ownerPublicKey, signature, 'hex');
 
     } catch (error) {
+      console.log("error", error)
       throw new BadRequestException('Failed to verify the file');
     }
+    console.log("isValid", isValid)
+
     if (!isValid) {
       throw new BadRequestException('Invalid signature');
     }
-    const decryptedFile = this.baseUploadService.decryptFile(fileBuffer);
+
     res.setHeader(
         "Content-Disposition",
         `inline; filename="${fileId}"`
@@ -145,23 +144,38 @@ export class UploadDriverController
     res.send(decryptedFile);
   }
 
-  @Get("request-file")
+  @Post("request-file")
+  @SingleFileUploadInterceptor()
   async requestFile(
     @Query("fileId") fileId: string,
-    @MetaData("userId") userId: string
-  ): Promise<{}> {
-    await this.baseUploadService.requestDownloadFile(fileId, userId);
+    @MetaData("userId") userId: string,
+    @UploadedFile() file: Express.Multer.File,
+): Promise<{}> {
+    const publicKey = fs.readFileSync(file.path, 'utf8');
+
+    if (!publicKey.startsWith('-----BEGIN PUBLIC KEY-----')) {
+      throw new BadRequestException('Invalid public key format');
+    }
+
+    await this.baseUploadService.requestDownloadFile(fileId, userId, publicKey);
 
     return {
     }
   }
 
-  @Get("accept-request")
+  @Post("accept-request")
+  @SingleFileUploadInterceptor()
   async acceptRequest(
       @Query('requestId') requestId:  string ,
-      @MetaData("userId") userId: string
+      @MetaData("userId") userId: string,
+      @UploadedFile() file: Express.Multer.File,
   ): Promise<{}> {
-    await this.baseUploadService.acceptRequest(requestId, userId);
+    const publicKey = fs.readFileSync(file.path, 'utf8');
+
+    if (!publicKey.startsWith('-----BEGIN PUBLIC KEY-----')) {
+      throw new BadRequestException('Invalid public key format');
+    }
+    await this.baseUploadService.acceptRequest(requestId, userId, publicKey);
     return {};
   }
 
@@ -187,16 +201,6 @@ export class UploadDriverController
       myFiles,
       requestedMyFile,
       acceptedMyRequest
-    };
-  }
-
-  @Get("list/requested")
-  async getNewListRequested(
-      @MetaData("userId") userId: string
-  ): Promise<{}> {
-    // const newFiles =
-    return {
-      data: []
     };
   }
 }
