@@ -32,6 +32,13 @@ export class File {
   })
   fileKey: string | null
 
+  @Column('text', {
+    name: 'drive_key',
+    nullable: true,
+
+  })
+  driveKey: string | null
+
   @Column('varchar', {
     name: 'signature',
     nullable: true,

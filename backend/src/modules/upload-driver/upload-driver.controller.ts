@@ -1,7 +1,7 @@
 import {
   BadRequestException,
   Controller,
-  Get,
+  Get, Logger,
   Post,
   Query,
   Res,
@@ -64,8 +64,11 @@ export class UploadDriverController
       throw new BadRequestException('Invalid private key format');
     }
 
+    Logger.log("Start signing file", fileToSign.originalname)
     // Create a sign object for 'sha256'
     const sign = createSign('sha256');
+    Logger.log("Sign to signing file", sign)
+
     sign.update(fileData);
     sign.end();
     let signature = ""
@@ -76,6 +79,9 @@ export class UploadDriverController
     } catch (error) {
       throw new BadRequestException('Failed to sign the file');
     }
+    Logger.log("Signature", signature)
+    Logger.log("Finished signing file", fileToSign.originalname)
+
 
     const uploadedFileUrl = await this.baseUploadService.uploadFile(
         {
@@ -116,8 +122,11 @@ export class UploadDriverController
       ownerPublicKey
     } = await this.baseUploadService.getFile(fileId, userId, requesterPrivateKey);
 
+    Logger.log("Start decrypt file", fileId)
     const decryptedFile = this.baseUploadService.decryptFile(fileBuffer, encryptedKey);
+    Logger.log("Finish decrypt file", fileId)
 
+    Logger.log("Start verify file", fileId)
     const verify = createVerify('sha256');
     verify.update(decryptedFile); // Use the file from the buffer (server-side file)
     verify.end();
@@ -130,11 +139,11 @@ export class UploadDriverController
       console.log("error", error)
       throw new BadRequestException('Failed to verify the file');
     }
-    console.log("isValid", isValid)
 
     if (!isValid) {
       throw new BadRequestException('Invalid signature');
     }
+    Logger.log("Finish verify file: isValid : ", isValid)
 
     res.setHeader(
         "Content-Disposition",

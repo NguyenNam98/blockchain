@@ -45,6 +45,13 @@ export class RequestFile {
 
   @Column( {
     type: 'text',
+    name: 'requester_public_key',
+    nullable: true
+  })
+  requesterPublicKey: string
+
+  @Column( {
+    type: 'text',
     name: 'owner_public_key',
     nullable: true
   })

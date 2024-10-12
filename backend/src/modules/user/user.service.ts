@@ -31,13 +31,13 @@ export class UserService {
       throw new BusinessException("Email already exists");
     }
     const currentAccount = await this.masterConnection.getRepository(User).count();
-    const web3Account = await this.web3Service.getAccountByIndex(currentAccount - 1);
+    const web3Account = await this.web3Service.getAccountByIndex(currentAccount);
     const id =  await this.masterConnection.getRepository(User).insert({
       email: data.email,
       password: data.password,
       userName: data.userName,
       blockChainAddress: web3Account,
-      blockChainAccountIndex: currentAccount - 1
+      blockChainAccountIndex: currentAccount
     });
     return {
       id: id.identifiers[0].id,
