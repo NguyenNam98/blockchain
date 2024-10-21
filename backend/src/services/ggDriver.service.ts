@@ -64,7 +64,8 @@ export class GoogleDriveService {
       const { encryptedFile, key } = this.encryptionService.encryptFileSymmetric(
           fileBuffer
       );
-
+     Logger.log("+++++++++++++++++Encrypted file to Driver signing file++++++++++++++++++++++++=")
+     Logger.log(encryptedFile)
       const fileMetadata: drive_v3.Schema$File = {
         name: fileName,
       };
@@ -81,6 +82,16 @@ export class GoogleDriveService {
         fields: 'id, webViewLink',
       });
       this.logger.log(`Uploaded file to Google Drive: ${fileName}`);
+      await this.driveClient.permissions.create({
+        fileId: response.data.id,
+        requestBody: {
+          role: 'reader',  // Access level (e.g., 'reader' for view-only access)
+          type: 'anyone',  // 'anyone' means public access
+        },
+      });
+
+      this.logger.log(`Uploaded file to ID ++++++++++++: ${response.data.id}`);
+
 
       return {
         url: response.data.webViewLink || '',

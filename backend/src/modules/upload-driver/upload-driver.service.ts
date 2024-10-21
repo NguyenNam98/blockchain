@@ -14,7 +14,7 @@ import {EncryptionService} from "../../services/crypto.service";
 import {Web3Service} from "../../services/web3.service";
 
 
-const DEFAULT_FILE_TYPE = ["image/jpeg", "image/jpg", "image/png", "application/pdf"];
+const DEFAULT_FILE_TYPE = ["image/jpeg", "image/jpg", "image/png", "application/pdf", "text/plain"];
 const minFileSize = 100;
 
 @Injectable()
@@ -88,7 +88,7 @@ export class UploadDriverService  {
     mimeType: string,
     signature: string,
     ownerPublicKey: string,
-    encryptedKey: string
+    decryptedKey: string
   }> {
     const myUser = await this.masterConnection.getRepository(User).findOne({
       where: {
@@ -128,7 +128,7 @@ export class UploadDriverService  {
       mimeType: data.mimeType,
       signature: fileInfor.signature,
       ownerPublicKey: requestedFile.ownerPublicKey,
-      encryptedKey: this.encryptionService.decryptWithPrivateKey(requesterPrivateKey, requestedFile.encryptedKey)
+      decryptedKey: this.encryptionService.decryptWithPrivateKey(requesterPrivateKey, requestedFile.encryptedKey)
     }
   }
   decryptFile(fileBuffer: Buffer, key: string): Buffer {

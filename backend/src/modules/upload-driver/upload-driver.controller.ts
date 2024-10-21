@@ -79,9 +79,8 @@ export class UploadDriverController
     } catch (error) {
       throw new BadRequestException('Failed to sign the file');
     }
-    Logger.log("Signature", signature)
-    Logger.log("Finished signing file", fileToSign.originalname)
-
+    Logger.log("+++++++++++++++++++++++Signature of file:   ++++++++++++++++++++", fileToSign.originalname)
+    Logger.log(signature)
 
     const uploadedFileUrl = await this.baseUploadService.uploadFile(
         {
@@ -91,7 +90,6 @@ export class UploadDriverController
         },
         userId,
         signature
-
     );
     return {
         url: uploadedFileUrl,
@@ -118,15 +116,25 @@ export class UploadDriverController
       fileBuffer,
       mimeType,
       signature,
-      encryptedKey,
+      decryptedKey,
       ownerPublicKey
     } = await this.baseUploadService.getFile(fileId, userId, requesterPrivateKey);
 
     Logger.log("Start decrypt file", fileId)
-    const decryptedFile = this.baseUploadService.decryptFile(fileBuffer, encryptedKey);
-    Logger.log("Finish decrypt file", fileId)
+
+    Logger.log(" ++++++++++++++decryptedKey +++++++++++++++++")
+    Logger.log(decryptedKey)
+
+    const decryptedFile = this.baseUploadService.decryptFile(fileBuffer, decryptedKey);
+
 
     Logger.log("Start verify file", fileId)
+    Logger.log(" +++++++++++++++ Owner Public Key ++++++++++++++++")
+    Logger.log(ownerPublicKey)
+
+    Logger.log(" +++++++++++++++ signature of file ++++++++++++++++")
+    Logger.log(signature)
+
     const verify = createVerify('sha256');
     verify.update(decryptedFile); // Use the file from the buffer (server-side file)
     verify.end();
@@ -143,7 +151,8 @@ export class UploadDriverController
     if (!isValid) {
       throw new BadRequestException('Invalid signature');
     }
-    Logger.log("Finish verify file: isValid : ", isValid)
+
+    Logger.log("File verify key successfully", fileId)
 
     res.setHeader(
         "Content-Disposition",

@@ -96,6 +96,8 @@ export class EncryptionService {
 
   // Decrypt the encrypted symmetric key using the private key (PEM format)
   decryptWithPrivateKey(privateKeyPem: string, encryptedSymmetricKeyBase64: string): string {
+    Logger.log("+++++++++++++++=Encrypted Key ++++++++++++++")
+    Logger.log(encryptedSymmetricKeyBase64)
     const decryptedSymmetricKey = crypto.privateDecrypt(
         privateKeyPem,
         Buffer.from(encryptedSymmetricKeyBase64, 'base64') // Convert Base64-encoded encrypted key to Buffer
