@@ -14,7 +14,7 @@ import {EncryptionService} from "../../services/crypto.service";
 import {Web3Service} from "../../services/web3.service";
 
 
-const DEFAULT_FILE_TYPE = ["image/jpeg", "image/jpg", "image/png", "application/pdf"];
+const DEFAULT_FILE_TYPE = ["image/jpeg", "image/jpg", "image/png", "application/pdf", "text/plain"];
 const minFileSize = 100;
 
 @Injectable()
@@ -30,9 +30,6 @@ export class UploadDriverService  {
       private encryptionService : EncryptionService,
       private web3Service: Web3Service
   ) {}
-  get urlPrefix(): string {
-    return this._uploadUrlPrefix || "/upload";
-  }
 
   get mineType(): string[] {
     return this._mineType || DEFAULT_FILE_TYPE;
@@ -63,16 +60,18 @@ export class UploadDriverService  {
     if (!userInfo) {
       throw new BusinessException("User not found");
     }
+
     // upload to driver
     const uploadInfo = await this.s3UploadService.uploadFile(file);
     // save to db
     const newFile = await this.masterConnection.getRepository(File).insert({
       userId: userId,
-      fileKey: uploadInfo.key,
       mineType: file.mimeType,
       isValid: true,
+      fileKey: uploadInfo.key,
       fileName: file.originalName,
-      signature
+      signature,
+      driveKey: uploadInfo.driveKey
     });
     // public to block chain
     await this.web3Service.uploadFile({
@@ -89,7 +88,7 @@ export class UploadDriverService  {
     mimeType: string,
     signature: string,
     ownerPublicKey: string,
-    encryptedKey: string
+    decryptedKey: string
   }> {
     const myUser = await this.masterConnection.getRepository(User).findOne({
       where: {
@@ -123,13 +122,13 @@ export class UploadDriverService  {
       throw new BusinessException("File not found");
     }
 
-    const data =  await this.s3UploadService.getFileStream(fileInfor.fileKey);
+    const data =  await this.s3UploadService.getFileStream(fileInfor.driveKey);
     return {
       fileBuffer: data.encryptedBuffer,
       mimeType: data.mimeType,
       signature: fileInfor.signature,
       ownerPublicKey: requestedFile.ownerPublicKey,
-      encryptedKey: this.encryptionService.decryptWithPrivateKey(requesterPrivateKey, requestedFile.encryptedKey)
+      decryptedKey: this.encryptionService.decryptWithPrivateKey(requesterPrivateKey, requestedFile.encryptedKey)
     }
   }
   decryptFile(fileBuffer: Buffer, key: string): Buffer {
@@ -152,17 +151,15 @@ export class UploadDriverService  {
     if (!userInfor) {
       throw new BusinessException("User not found");
     }
-
-    const encryptedKey =  this.encryptionService.encryptWithPublicKey(requesterPublicKey, process.env.SYMMETRIC_KEY);
     // send request to block chain
-    await this.web3Service.requestAccess(fileId, userInfor.blockChainAddress);
+    await this.web3Service.requestAccess(fileId, userInfor.blockChainAddress, userInfor.userName);
 
     await this.masterConnection.getRepository(RequestFile).insert({
       ownerId: fileInfor.userId,
       requesterId: userId,
       fileId: fileInfor.id,
       isValid: true,
-      encryptedKey
+      requesterPublicKey
     })
     return {}
   }
@@ -177,7 +174,6 @@ export class UploadDriverService  {
     if (!userInfor) {
       throw new BusinessException("User not found");
     }
-
     const requestFile = await this.masterConnection.getRepository(RequestFile).findOne({
       where: {
         id: requestFileId,
@@ -199,11 +195,25 @@ export class UploadDriverService  {
     if (!requester) {
       throw new BusinessException("Requester not found");
     }
+
+    const fileInfor = await this.masterConnection.getRepository(File).findOne({
+      where: {
+        id: requestFile.fileId
+      }
+    })
+
+
+    const encryptedKey =  this.encryptionService.encryptWithPublicKey(requestFile.requesterPublicKey, fileInfor.fileKey);
+
+    if (!encryptedKey) {
+      throw new BusinessException("Failed to encrypt the file key");
+    }
     await this.masterConnection.getRepository(RequestFile).update({
       id: requestFileId
     }, {
       status: RequestFileStatus.APPROVED,
-      ownerPublicKey
+      ownerPublicKey,
+      encryptedKey
     })
     // public to block chain
     await this.web3Service.approveOrRejectAccess(
@@ -211,7 +221,7 @@ export class UploadDriverService  {
         requester.blockChainAddress,
         true,
         userInfor.blockChainAddress,
-        requestFile.encryptedKey
+        encryptedKey
     );
 
     return {}

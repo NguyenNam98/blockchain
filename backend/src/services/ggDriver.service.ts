@@ -10,7 +10,7 @@ import { Readable } from 'stream';
 interface IUploadResult {
   url: string;
   key: string;
-  additionalData?: any;
+  driveKey: string;
 }
 
 export type TFile = {
@@ -57,13 +57,15 @@ export class GoogleDriveService {
   }
   async uploadFile(file: TFile): Promise<IUploadResult> {
     try {
+      Logger.log("Starting upload file to Driver signing file", file.originalName)
       const fileName = this.generateFileName(file.originalName);
       const fileBuffer = await readFileAsync(file.filePath);
 
-      const { encryptedFile } = this.encryptionService.encryptFileSymmetric(
+      const { encryptedFile, key } = this.encryptionService.encryptFileSymmetric(
           fileBuffer
       );
-
+     Logger.log("+++++++++++++++++Encrypted file to Driver signing file++++++++++++++++++++++++=")
+     Logger.log(encryptedFile)
       const fileMetadata: drive_v3.Schema$File = {
         name: fileName,
       };
@@ -73,17 +75,28 @@ export class GoogleDriveService {
         body: this.bufferToStream(encryptedFile), // Use the encrypted file stream
       };
 
-      this.logger.log(`Uploading file to Google Drive: ${fileName}`);
 
       const response = await this.driveClient.files.create({
         requestBody: fileMetadata,
         media: media,
         fields: 'id, webViewLink',
       });
+      this.logger.log(`Uploaded file to Google Drive: ${fileName}`);
+      await this.driveClient.permissions.create({
+        fileId: response.data.id,
+        requestBody: {
+          role: 'reader',  // Access level (e.g., 'reader' for view-only access)
+          type: 'anyone',  // 'anyone' means public access
+        },
+      });
+
+      this.logger.log(`Uploaded file to ID ++++++++++++: ${response.data.id}`);
+
 
       return {
         url: response.data.webViewLink || '',
-        key: response.data.id || '',
+        key: key,
+        driveKey: response.data.id
       };
     } catch (error) {
       this.logger.error(`Error uploading file to Google Drive: ${error}`);
@@ -97,6 +110,7 @@ export class GoogleDriveService {
 
   }> {
     try {
+      Logger.log("Starting fetch file stream from Driver signing file", fileId)
       // First, fetch the file metadata to get the mimeType
       const fileMetadata = await this.driveClient.files.get({
         fileId: fileId,
@@ -116,6 +130,7 @@ export class GoogleDriveService {
       // const encryptedStream = response.data;
       const encryptedBuffer = Buffer.from(response.data as any);
 
+      Logger.log("Finish fetch file stream from Driver signing file", fileId)
       // const { hash, signature } = await this.encryptionService.signFileBuffer(encryptedBuffer, decryptOptions.privateKey);
       return {
         encryptedBuffer,

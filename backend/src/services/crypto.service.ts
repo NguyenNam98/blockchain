@@ -1,4 +1,4 @@
-import {BadRequestException, Injectable} from '@nestjs/common';
+import {BadRequestException, Injectable, Logger} from '@nestjs/common';
 import * as crypto from 'crypto';
 import {  Transform } from 'stream';
 import {createSign, createVerify} from "crypto";
@@ -17,16 +17,21 @@ export class EncryptionService {
   private readonly algorithm = 'aes-256-cbc'; // AES encryption algorithm
 
   // Encrypt the file content symmetrically using AES
-  encryptFileSymmetric(fileBuffer: Buffer) {
-    const keyString = process.env.SYMMETRIC_KEY;
+  encryptFileSymmetric(fileBuffer: Buffer): {
+    encryptedFile: Buffer;
+    key: string;
+  } {
+    Logger.log("Starting encrypt file")
+    const key = crypto.randomBytes(32); // Generate a 256-bit key (32 bytes)
     const ivString = process.env.IV_KEY;
-    const key = Buffer.from(keyString, 'hex')
     const iv = Buffer.from(ivString, 'hex')
     const cipher = crypto.createCipheriv(this.algorithm, key, iv);
     const encryptedFile = Buffer.concat([cipher.update(fileBuffer), cipher.final()]);
+    Logger.log("Finish encrypt file")
 
     return {
-      encryptedFile,       // Return encrypted file as Buffer
+      encryptedFile,
+      key: key.toString('hex')// Return encrypted file as Buffer
     };
   }
   decryptFileSymmetric(encryptedBuffer: Buffer, keyString: string) {
@@ -79,16 +84,20 @@ export class EncryptionService {
     return isValid;
   }
   encryptWithPublicKey(publicKeyPem: string, symmetricKey: string): string {
+    Logger.log("Starting encrypt with public key")
     const encryptedSymmetricKey = crypto.publicEncrypt(
         publicKeyPem, // Public key in PEM format
         Buffer.from(symmetricKey, 'utf8')
     );
 
+    Logger.log("Finish encrypt with public key")
     return encryptedSymmetricKey.toString('base64');
   }
 
   // Decrypt the encrypted symmetric key using the private key (PEM format)
   decryptWithPrivateKey(privateKeyPem: string, encryptedSymmetricKeyBase64: string): string {
+    Logger.log("+++++++++++++++=Encrypted Key ++++++++++++++")
+    Logger.log(encryptedSymmetricKeyBase64)
     const decryptedSymmetricKey = crypto.privateDecrypt(
         privateKeyPem,
         Buffer.from(encryptedSymmetricKeyBase64, 'base64') // Convert Base64-encoded encrypted key to Buffer

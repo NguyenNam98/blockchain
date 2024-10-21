@@ -15,6 +15,7 @@ contract StoreFile {
         uint256 timestamp;
         bool approved;
         uint256 approvalTimestamp;
+        string requestUserName;
     }
 
     // Mapping from file ID (string) to File struct
@@ -36,16 +37,19 @@ contract StoreFile {
     event AccessRequested(
         string indexed fileId,
         address indexed requester,
-        uint256 timestamp
+        uint256 timestamp,
+        string requestUserName
     );
 
     // Event emitted when an access request is approved or denied, including the file hash
-    event AccessApproved(
+    event AccessApprovedOrRejected(
         string indexed fileId,
         address indexed requester,
         uint256 approvalTimestamp,
         bool approved,
-        string fileHash
+        string fileHash,
+        string emailMessage
+
     );
 
     // Function to upload a new file record with a provided fileId
@@ -66,7 +70,10 @@ contract StoreFile {
     }
 
     // Function to request access to a file
-    function requestAccess(string memory _fileId) public {
+    function requestAccess(
+        string memory _fileId,
+        string memory userName
+    ) public {
         require(files[_fileId].uploader != address(0), "File does not exist");
 
         // Check if the user has already requested access
@@ -86,11 +93,12 @@ contract StoreFile {
             requester: msg.sender,
             timestamp: block.timestamp,
             approved: false,
-            approvalTimestamp: 0
+            approvalTimestamp: 0,
+            requestUserName: userName
         }));
 
         // Emit the event for transparency
-        emit AccessRequested(_fileId, msg.sender, block.timestamp);
+        emit AccessRequested(_fileId, msg.sender, block.timestamp, userName);
     }
 
     // Function for the owner to approve or deny access and log a hash
@@ -107,8 +115,18 @@ contract StoreFile {
                 requests[i].approved = _approved;
                 requests[i].approvalTimestamp = block.timestamp;
 
+                string memory emailMessage = _approved
+                    ? "Access approved for your requested file."
+                    : "Access request rejected for your requested file.";
                 // Emit event with the file hash and approval details for transparency
-                emit AccessApproved(_fileId, _requester, block.timestamp, _approved, _hash);
+                emit AccessApprovedOrRejected(
+                    _fileId,
+                    _requester,
+                    block.timestamp,
+                    _approved,
+                    _hash,
+                    emailMessage
+                );
                 return; // Exit the function after finding and processing the request
             }
         }

@@ -1,7 +1,7 @@
 import {
   BadRequestException,
   Controller,
-  Get,
+  Get, Logger,
   Post,
   Query,
   Res,
@@ -64,8 +64,11 @@ export class UploadDriverController
       throw new BadRequestException('Invalid private key format');
     }
 
+    Logger.log("Start signing file", fileToSign.originalname)
     // Create a sign object for 'sha256'
     const sign = createSign('sha256');
+    Logger.log("Sign to signing file", sign)
+
     sign.update(fileData);
     sign.end();
     let signature = ""
@@ -76,6 +79,8 @@ export class UploadDriverController
     } catch (error) {
       throw new BadRequestException('Failed to sign the file');
     }
+    Logger.log("+++++++++++++++++++++++Signature of file:   ++++++++++++++++++++", fileToSign.originalname)
+    Logger.log(signature)
 
     const uploadedFileUrl = await this.baseUploadService.uploadFile(
         {
@@ -85,7 +90,6 @@ export class UploadDriverController
         },
         userId,
         signature
-
     );
     return {
         url: uploadedFileUrl,
@@ -112,11 +116,24 @@ export class UploadDriverController
       fileBuffer,
       mimeType,
       signature,
-      encryptedKey,
+      decryptedKey,
       ownerPublicKey
     } = await this.baseUploadService.getFile(fileId, userId, requesterPrivateKey);
 
-    const decryptedFile = this.baseUploadService.decryptFile(fileBuffer, encryptedKey);
+    Logger.log("Start decrypt file", fileId)
+
+    Logger.log(" ++++++++++++++decryptedKey +++++++++++++++++")
+    Logger.log(decryptedKey)
+
+    const decryptedFile = this.baseUploadService.decryptFile(fileBuffer, decryptedKey);
+
+
+    Logger.log("Start verify file", fileId)
+    Logger.log(" +++++++++++++++ Owner Public Key ++++++++++++++++")
+    Logger.log(ownerPublicKey)
+
+    Logger.log(" +++++++++++++++ signature of file ++++++++++++++++")
+    Logger.log(signature)
 
     const verify = createVerify('sha256');
     verify.update(decryptedFile); // Use the file from the buffer (server-side file)
@@ -130,11 +147,12 @@ export class UploadDriverController
       console.log("error", error)
       throw new BadRequestException('Failed to verify the file');
     }
-    console.log("isValid", isValid)
 
     if (!isValid) {
       throw new BadRequestException('Invalid signature');
     }
+
+    Logger.log("File verify key successfully", fileId)
 
     res.setHeader(
         "Content-Disposition",
